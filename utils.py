@@ -5,6 +5,8 @@ import os
 import pickle
 import xml.etree.ElementTree as ET
 import json
+import struct
+import tensorflow as tf
 
 def _sigmoid(x):
     return 1. / (1. + np.exp(-x))
@@ -217,6 +219,68 @@ class BoundBox:
 
         return self.score
 
+
+class WeightReader:
+    def __init__(self, weight_file):
+        with open(weight_file, 'rb') as w_f:
+            major, = struct.unpack('i', w_f.read(4))
+            minor, = struct.unpack('i', w_f.read(4))
+            revision, = struct.unpack('i', w_f.read(4))
+
+            if (major * 10 + minor) >= 2 and major < 1000 and minor < 1000:
+                w_f.read(8)
+            else:
+                w_f.read(4)
+
+            transpose = (major > 1000) or (minor > 1000)
+
+            binary = w_f.read()
+
+        self.offset = 0
+        self.all_weights = np.frombuffer(binary, dtype='float32')
+
+    def read_bytes(self, size):
+        self.offset = self.offset + size
+        return self.all_weights[self.offset - size:self.offset]
+
+    def load_weights(self, model,sess):
+        for i in range(106):
+            try:
+                conv_layer=tf.get_collection(model, scope='yolo3/conv_block/conv_'+str(i)+'/')
+                print("loading weights of convolution #" + str(i))
+
+                if i not in [81, 93, 105]:
+                    norm_layer = tf.get_collection(model, scope='yolo3/conv_block/bnorm_'+str(i)+'/')
+
+                    size = np.prod(norm_layer[0].shape)
+
+                    beta = self.read_bytes(size)  # bias
+                    gamma = self.read_bytes(size)  # scale
+                    mean = self.read_bytes(size)  # mean
+                    var = self.read_bytes(size)  # variance
+                    sess.run(tf.assign(norm_layer[0],gamma))
+                    sess.run(tf.assign(norm_layer[1], beta))
+                    sess.run(tf.assign(norm_layer[2], mean))
+                    sess.run(tf.assign(norm_layer[3], var))
+
+                if len(conv_layer) > 1:
+                    bias = self.read_bytes(np.prod(conv_layer[1].shape))
+                    kernel = self.read_bytes(np.prod(conv_layer[0].shape))
+
+                    kernel = kernel.reshape(list(reversed(conv_layer[0].shape)))
+                    kernel = kernel.transpose([2, 3, 1, 0])
+                    sess.run(tf.assign(conv_layer[0], kernel))
+                    sess.run(tf.assign(conv_layer[1], bias))
+                else:
+                    kernel = self.read_bytes(np.prod(conv_layer[0].shape))
+                    kernel = kernel.reshape(list(reversed(conv_layer[0].shape)))
+                    kernel = kernel.transpose([2, 3, 1, 0])
+                    sess.run(tf.assign(conv_layer[0], kernel))
+            except Exception:
+                print("no convolution #" + str(i))
+
+    def reset(self):
+        self.offset = 0
 
 def _rand_scale(scale):
     scale = np.random.uniform(1, scale)

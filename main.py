@@ -7,13 +7,12 @@ def DoTrain(detector):
 
 def DoTest(detector):
     start=time.time()
-    cv2.imshow('test', detector.Test(imgPath='Z:/dataset/KNU-Campus Dataset/images/20180312_172240/20180312_172240_0005.jpg'))
+    cv2.imwrite('test2.jpg', detector.Test(imgPath='test.jpg'))
     print(time.time()-start)
-    cv2.waitKey(0)
 
 if __name__=="__main__":
     detector=Detector.Detector(isRestore=True)
-    DoTrain(detector)
+    # DoTrain(detector)
     DoTest(detector)
     # DoTrain(detector)
     # for j in range(1000):

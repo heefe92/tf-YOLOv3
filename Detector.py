@@ -2,6 +2,8 @@ import tensorflow as tf
 import numpy as np
 import cv2
 import utils
+import os
+
 import BatchGenerator
 import time
 from tensorflow.python.tools import inspect_checkpoint as chkp
@@ -46,38 +48,50 @@ class Detector():
 
         self.logits = self.make_yolov3_model(self.input_img)
 
-        self.loss = tf.reduce_sum(self.LossFunction(self.input_img, self.logits, self.ground_truth, self.ground_truth_boxes))
-        self.sqrt_loss = tf.sqrt(self.loss)
 
 
-        train_ints, valid_ints, labels = utils.create_training_instances(
-            'F:/DataSet/COCO/Annotations/instances_train2017.json',
-            'F:/DataSet/COCO/train/',
-            'coco_train_data.pickle',
-            'F:/DataSet/COCO/Annotations/instances_val2017.json',
-            'F:/DataSet/COCO/val/',
-            'coco_val_data.pickle',
-            self.labels
-        )
-        self.trainBatchGenerator = BatchGenerator.BatchGenerator(
-            train_ints, self.anchors, self.labels,
-            shuffle = True,
-            jitter = 0.3,
-            norm = utils.normalize,
-            batch_size=self.batch_size
-        )
-        self.validBatchGenerator = BatchGenerator.BatchGenerator(
-            valid_ints, self.anchors, self.labels,
-            shuffle = True,
-            jitter = 0.3,
-            norm = utils.normalize,
-            batch_size=self.batch_size)
+        # self.loss = tf.reduce_sum(self.LossFunction(self.input_img, self.logits, self.ground_truth, self.ground_truth_boxes))
+        # self.sqrt_loss = tf.sqrt(self.loss)
 
+
+        # train_ints, valid_ints, labels = utils.create_training_instances(
+        #     'F:/DataSet/COCO/Annotations/instances_train2017.json',
+        #     'F:/DataSet/COCO/train/',
+        #     'coco_train_data.pickle',
+        #     'F:/DataSet/COCO/Annotations/instances_val2017.json',
+        #     'F:/DataSet/COCO/val/',
+        #     'coco_val_data.pickle',
+        #     self.labels
+        # )
+        # self.trainBatchGenerator = BatchGenerator.BatchGenerator(
+        #     train_ints, self.anchors, self.labels,
+        #     shuffle = True,
+        #     jitter = 0.3,
+        #     norm = utils.normalize,
+        #     batch_size=self.batch_size
+        # )
+        # self.validBatchGenerator = BatchGenerator.BatchGenerator(
+        #     valid_ints, self.anchors, self.labels,
+        #     shuffle = True,
+        #     jitter = 0.3,
+        #     norm = utils.normalize,
+        #     batch_size=self.batch_size)
+
+
+
+        # self.train_op=tf.train.AdamOptimizer(self.learning_rate).minimize(self.sqrt_loss)
 
         #tf.train.Saver(var_list=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='yolo3/conv_block')).restore(self.sess, "./Weights/Yolov3.ckpt")
+        #print(tf.global_variables())
 
-        self.train_op=tf.train.AdamOptimizer(self.learning_rate).minimize(self.sqrt_loss)
-
+        if not os.path.exists('./Weights/Yolov3.ckpt.meta'):
+            WeightsReader = utils.WeightReader('yolov3.weights')
+            WeightsReader.load_weights(tf.GraphKeys.GLOBAL_VARIABLES,self.sess)
+            tf.train.Saver(var_list=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='yolo3/conv_block')).save(
+                self.sess,'./Weights/Yolov3.ckpt')
+        else:
+            tf.train.Saver(var_list=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='yolo3/conv_block')).restore(
+                self.sess, "./Weights/Yolov3.ckpt")
         # List all global variables
         global_vars = tf.global_variables()
 
@@ -92,8 +106,11 @@ class Detector():
         # Initialize all uninitialized variables found, if any
         if len(not_initialized_vars):
             self.sess.run(tf.variables_initializer(not_initialized_vars))
+
+
         print('success model initialize')
-    def _group_norm(self,x,layer_idx, G=16, eps=1e-5, scope='group_norm'):
+
+    def _group_norm(self,x,layer_idx, G=16, eps=1e-5, scope='gnorm'):
         with tf.variable_scope(scope+'_'+str(layer_idx)):
             N, H, W, C = x.get_shape().as_list()
             G = min(G, C)
@@ -115,7 +132,7 @@ class Detector():
             x = x * gamma + beta
 
         return x
-    def _batch_norm(self,x,conv,  eps=1e-5, scope='batch_norm'):
+    def _batch_norm(self,x,conv,  eps=1e-5, scope='bnorm'):
         with tf.variable_scope(scope+'_'+str(conv['layer_idx'])):
             gamma = tf.get_variable(name='gamma', shape=(conv['filter']),
                                     trainable=True)
@@ -160,114 +177,114 @@ class Detector():
         with tf.variable_scope('yolo3',reuse=reuse):
             # Layer  0 => 4
             x = self._conv_block(input_image,
-                                 [{'filter': 32, 'kernel': 3, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                                 [{'filter': 32, 'kernel': 3, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                                    'layer_idx': 0},
-                                  {'filter': 64, 'kernel': 3, 'stride': 2, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                                  {'filter': 64, 'kernel': 3, 'stride': 2, 'bnorm': True, 'gnorm': False, 'leaky': True,
                                    'layer_idx': 1},
-                                  {'filter': 32, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                                  {'filter': 32, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                                    'layer_idx': 2},
-                                  {'filter': 64, 'kernel': 3, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                                  {'filter': 64, 'kernel': 3, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                                    'layer_idx': 3}])
             # Layer  5 => 8
             x = self._conv_block(x, [
-                {'filter': 128, 'kernel': 3, 'stride': 2, 'bnorm': False, 'gnorm': True, 'leaky': True, 'layer_idx': 5},
-                {'filter': 64, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True, 'layer_idx': 6},
-                {'filter': 128, 'kernel': 3, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 128, 'kernel': 3, 'stride': 2, 'bnorm': True, 'gnorm': False, 'leaky': True, 'layer_idx': 5},
+                {'filter': 64, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True, 'layer_idx': 6},
+                {'filter': 128, 'kernel': 3, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 7}])
             # Layer  9 => 11
             x = self._conv_block(x, [
-                {'filter': 64, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True, 'layer_idx': 9},
-                {'filter': 128, 'kernel': 3, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 64, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True, 'layer_idx': 9},
+                {'filter': 128, 'kernel': 3, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 10}])
             # Layer 12 => 15
             x = self._conv_block(x, [
-                {'filter': 256, 'kernel': 3, 'stride': 2, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 256, 'kernel': 3, 'stride': 2, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 12},
-                {'filter': 128, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 128, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 13},
-                {'filter': 256, 'kernel': 3, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 256, 'kernel': 3, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 14}])
             # Layer 16 => 36
             for i in range(7):
                 x = self._conv_block(x, [
-                    {'filter': 128, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                    {'filter': 128, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                      'layer_idx': 16 + i * 3},
-                    {'filter': 256, 'kernel': 3, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                    {'filter': 256, 'kernel': 3, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                      'layer_idx': 17 + i * 3}])
             skip_36 = x
             # Layer 37 => 40
             x = self._conv_block(x, [
-                {'filter': 512, 'kernel': 3, 'stride': 2, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 512, 'kernel': 3, 'stride': 2, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 37},
-                {'filter': 256, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 256, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 38},
-                {'filter': 512, 'kernel': 3, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 512, 'kernel': 3, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 39}])
             # Layer 41 => 61
             for i in range(7):
                 x = self._conv_block(x, [
-                    {'filter': 256, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                    {'filter': 256, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                      'layer_idx': 41 + i * 3},
-                    {'filter': 512, 'kernel': 3, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                    {'filter': 512, 'kernel': 3, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                      'layer_idx': 42 + i * 3}])
             skip_61 = x
             # Layer 62 => 65
             x = self._conv_block(x, [
-                {'filter': 1024, 'kernel': 3, 'stride': 2, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 1024, 'kernel': 3, 'stride': 2, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 62},
-                {'filter': 512, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 512, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 63},
-                {'filter': 1024, 'kernel': 3, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 1024, 'kernel': 3, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 64}])
             # Layer 66 => 74
             for i in range(3):
                 x = self._conv_block(x, [
-                    {'filter': 512, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                    {'filter': 512, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                      'layer_idx': 66 + i * 3},
-                    {'filter': 1024, 'kernel': 3, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                    {'filter': 1024, 'kernel': 3, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                      'layer_idx': 67 + i * 3}])
             # Layer 75 => 79
             x = self._conv_block(x, [
-                {'filter': 512, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 512, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 75},
-                {'filter': 1024, 'kernel': 3, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 1024, 'kernel': 3, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 76},
-                {'filter': 512, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 512, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 77},
-                {'filter': 1024, 'kernel': 3, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 1024, 'kernel': 3, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 78},
-                {'filter': 512, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 512, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 79}],
                                  skip=False)
             # Layer 80 => 82
             yolo_82 = self._conv_block(x, [
-                {'filter': 1024, 'kernel': 3, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 1024, 'kernel': 3, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 80},
                 {'filter': 3 * (len(self.labels) + 5), 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': False,'leaky': False,
                  'layer_idx': 81}], skip=False)
             # Layer 83 => 86
             x = self._conv_block(x, [
-                {'filter': 256, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 256, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 84}],
                                  skip=False)
             x = tf.keras.layers.UpSampling2D(2)(x)
             x = tf.concat([x, skip_61], axis=-1)
             # Layer 87 => 91
             x = self._conv_block(x, [
-                {'filter': 256, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 256, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 87},
-                {'filter': 512, 'kernel': 3, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 512, 'kernel': 3, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 88},
-                {'filter': 256, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 256, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 89},
-                {'filter': 512, 'kernel': 3, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 512, 'kernel': 3, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 90},
-                {'filter': 256, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 256, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 91}],
                                  skip=False)
             # Layer 92 => 94
             yolo_94 = self._conv_block(x,
-                                       [{'filter': 512, 'kernel': 3, 'stride': 1, 'bnorm': False, 'gnorm': True,
+                                       [{'filter': 512, 'kernel': 3, 'stride': 1, 'bnorm': True, 'gnorm': False,
                                          'leaky': True,
                                          'layer_idx': 92},
                                         {'filter': 3 * (len(self.labels) + 5), 'kernel': 1, 'stride': 1, 'bnorm': False,
@@ -275,24 +292,24 @@ class Detector():
                                          'layer_idx': 93}], skip=False)
             # Layer 95 => 98
             x = self._conv_block(x, [
-                {'filter': 128, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 128, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 96}],
                                  skip=False)
             x = tf.keras.layers.UpSampling2D(2)(x)
             x = tf.concat([x, skip_36], axis=-1)
             # Layer 99 => 106
             yolo_106 = self._conv_block(x, [
-                {'filter': 128, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 128, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 99},
-                {'filter': 256, 'kernel': 3, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 256, 'kernel': 3, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 100},
-                {'filter': 128, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 128, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 101},
-                {'filter': 256, 'kernel': 3, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 256, 'kernel': 3, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 102},
-                {'filter': 128, 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 128, 'kernel': 1, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 103},
-                {'filter': 256, 'kernel': 3, 'stride': 1, 'bnorm': False, 'gnorm': True, 'leaky': True,
+                {'filter': 256, 'kernel': 3, 'stride': 1, 'bnorm': True, 'gnorm': False, 'leaky': True,
                  'layer_idx': 104},
                 {'filter': 3 * (len(self.labels) + 5), 'kernel': 1, 'stride': 1, 'bnorm': False, 'gnorm': False,
                  'leaky': False, 'layer_idx': 105}], skip=False)
