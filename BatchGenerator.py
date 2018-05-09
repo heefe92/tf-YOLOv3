@@ -13,8 +13,8 @@ class BatchGenerator():
                  downsample=32,  # ratio between network input's size and network output's size, 32 for YOLOv3
                  max_box_per_image=30,
                  batch_size=1,
-                 min_net_size=320,
-                 max_net_size=608,
+                 min_net_size=416,
+                 max_net_size=416,
                  shuffle=True,
                  jitter=False,
                  norm=None
@@ -165,7 +165,6 @@ class BatchGenerator():
 
         new_ar = (image_w + np.random.uniform(-dw, dw)) / (image_h + np.random.uniform(-dh, dh))
         scale = np.random.uniform(0.25, 2)
-
         if (new_ar < 1):
             new_h = int(scale * net_h)
             new_w = int(net_h * new_ar)
@@ -180,7 +179,7 @@ class BatchGenerator():
         im_sized = apply_random_scale_and_crop(image, new_w, new_h, net_w, net_h, dx, dy)
 
         # randomly distort hsv space
-        im_sized = random_distort_image(im_sized)
+        # im_sized = random_distort_image(im_sized)
 
         # randomly flip
         flip = np.random.randint(2)

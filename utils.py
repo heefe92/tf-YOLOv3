@@ -250,7 +250,7 @@ class WeightReader:
                 print("loading weights of convolution #" + str(i))
 
                 if i not in [81, 93, 105]:
-                    norm_layer = tf.get_collection(model, scope='yolo3/conv_block/bnorm_'+str(i)+'/')
+                    norm_layer = tf.get_collection(model, scope='yolo3/conv_block/bnorm_'+str(i)+'/batch_normalization/')
 
                     size = np.prod(norm_layer[0].shape)
 
@@ -361,73 +361,135 @@ def apply_random_scale_and_crop(image, new_w, new_h, net_w, net_h, dx, dy):
     return im_sized[:net_h, :net_w, :]
 
 
-def parse_coco_annotation(ann_file, img_dir, cache_name, labels=[]):
+def parse_voc_annotation(ann_dir, img_dir, cache_name, labels=[]):
     if os.path.exists(cache_name):
         with open(cache_name, 'rb') as handle:
             cache = pickle.load(handle)
         all_insts, seen_labels = cache['all_insts'], cache['seen_labels']
-
     else:
         all_insts = []
         seen_labels = {}
-        ann_data=json.load(open(ann_file))
-        categories=ann_data['categories']
-        labels_id=[]
-        print(len(ann_data['annotations']))
-        for category in categories:
-            if category['name'] in labels:
-                labels_id.append(category['id'])
-        for idx,ann in enumerate(ann_data['annotations']):
-            if(idx%1000==0):
-                print(idx)
-            if ann['category_id'] in labels_id:
-                img_id=str(ann['image_id'])
-                while len(img_id)<12:
-                    img_id='0'+img_id
-                file_name=img_dir+img_id+'.jpg'
-                flag=True
-                for inst in all_insts:
-                    if(inst['filename']==file_name):
-                        object = {}
-                        object['name'] = labels[labels_id.index(ann['category_id'])]
-                        object['xmin'] = ann['bbox'][0]
-                        object['ymin'] = ann['bbox'][1]
-                        object['xmax'] = int(ann['bbox'][0]+ann['bbox'][2]) - 1
-                        object['ymax'] = int(ann['bbox'][1]+ann['bbox'][3]) - 1
-                        inst['object'].append(object)
-                        if object['name'] in seen_labels:
-                            seen_labels[object['name']] += 1
-                        else:
-                            seen_labels[object['name']] = 1
-                        flag=False
-                if flag:
-                    instance={}
-                    instance['filename'] = file_name
-                    img=cv2.imread(file_name)
-                    instance['height'] = img.shape[0]
-                    instance['width'] = img.shape[1]
-                    instance['object']=[]
-                    object={}
 
-                    object['name']=labels[labels_id.index(ann['category_id'])]
-                    object['xmin']= int(ann['bbox'][0])
-                    object['ymin'] = int(ann['bbox'][1])
-                    object['xmax'] = int(ann['bbox'][0]+ann['bbox'][2]) - 1
-                    object['ymax'] = int(ann['bbox'][1]+ann['bbox'][3]) - 1
-                    instance['object'].append(object)
-                    if object['name'] in seen_labels:
-                        seen_labels[object['name']] += 1
-                    else:
-                        seen_labels[object['name']] = 1
-                    all_insts.append(instance)
+        for ann in sorted(os.listdir(ann_dir)):
+            img = {'object': []}
 
-                #print(str(ann['image_id']))
+            try:
+                tree = ET.parse(ann_dir + ann)
+            except Exception as e:
+                print(e)
+                print('Ignore this bad annotation: ' + ann_dir + ann)
+                continue
+
+            for elem in tree.iter():
+                if 'filename' in elem.tag:
+                    img['filename'] = img_dir + elem.text
+                if 'width' in elem.tag:
+                    img['width'] = int(elem.text)
+                if 'height' in elem.tag:
+                    img['height'] = int(elem.text)
+                if 'object' in elem.tag or 'part' in elem.tag:
+                    obj = {}
+
+                    for attr in list(elem):
+                        if 'name' in attr.tag:
+                            obj['name'] = attr.text
+
+                            if obj['name'] in seen_labels:
+                                seen_labels[obj['name']] += 1
+                            else:
+                                seen_labels[obj['name']] = 1
+
+                            if len(labels) > 0 and obj['name'] not in labels:
+                                break
+                            else:
+                                img['object'] += [obj]
+
+                        if 'bndbox' in attr.tag:
+                            for dim in list(attr):
+                                if 'xmin' in dim.tag:
+                                    obj['xmin'] = int(round(float(dim.text)))
+                                if 'ymin' in dim.tag:
+                                    obj['ymin'] = int(round(float(dim.text)))
+                                if 'xmax' in dim.tag:
+                                    obj['xmax'] = int(round(float(dim.text)))
+                                if 'ymax' in dim.tag:
+                                    obj['ymax'] = int(round(float(dim.text)))
+
+            if len(img['object']) > 0:
+                all_insts += [img]
 
         cache = {'all_insts': all_insts, 'seen_labels': seen_labels}
         with open(cache_name, 'wb') as handle:
             pickle.dump(cache, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     return all_insts, seen_labels
+# def parse_coco_annotation(ann_file, img_dir, cache_name, labels=[]):
+#     if os.path.exists(cache_name):
+#         with open(cache_name, 'rb') as handle:
+#             cache = pickle.load(handle)
+#         all_insts, seen_labels = cache['all_insts'], cache['seen_labels']
+#
+#     else:
+#         all_insts = []
+#         seen_labels = {}
+#         ann_data=json.load(open(ann_file))
+#         categories=ann_data['categories']
+#         labels_id=[]
+#         print(len(ann_data['annotations']))
+#         for category in categories:
+#             if category['name'] in labels:
+#                 labels_id.append(category['id'])
+#         for idx,ann in enumerate(ann_data['annotations']):
+#             if(idx%1000==0):
+#                 print(idx)
+#             if ann['category_id'] in labels_id:
+#                 img_id=str(ann['image_id'])
+#                 while len(img_id)<12:
+#                     img_id='0'+img_id
+#                 file_name=img_dir+img_id+'.jpg'
+#                 flag=True
+#                 for inst in all_insts:
+#                     if(inst['filename']==file_name):
+#                         object = {}
+#                         object['name'] = labels[labels_id.index(ann['category_id'])]
+#                         object['xmin'] = ann['bbox'][0]
+#                         object['ymin'] = ann['bbox'][1]
+#                         object['xmax'] = int(ann['bbox'][0]+ann['bbox'][2]) - 1
+#                         object['ymax'] = int(ann['bbox'][1]+ann['bbox'][3]) - 1
+#                         inst['object'].append(object)
+#                         if object['name'] in seen_labels:
+#                             seen_labels[object['name']] += 1
+#                         else:
+#                             seen_labels[object['name']] = 1
+#                         flag=False
+#                 if flag:
+#                     instance={}
+#                     instance['filename'] = file_name
+#                     img=cv2.imread(file_name)
+#                     instance['height'] = img.shape[0]
+#                     instance['width'] = img.shape[1]
+#                     instance['object']=[]
+#                     object={}
+#
+#                     object['name']=labels[labels_id.index(ann['category_id'])]
+#                     object['xmin']= int(ann['bbox'][0])
+#                     object['ymin'] = int(ann['bbox'][1])
+#                     object['xmax'] = int(ann['bbox'][0]+ann['bbox'][2]) - 1
+#                     object['ymax'] = int(ann['bbox'][1]+ann['bbox'][3]) - 1
+#                     instance['object'].append(object)
+#                     if object['name'] in seen_labels:
+#                         seen_labels[object['name']] += 1
+#                     else:
+#                         seen_labels[object['name']] = 1
+#                     all_insts.append(instance)
+#
+#                 #print(str(ann['image_id']))
+#
+#         cache = {'all_insts': all_insts, 'seen_labels': seen_labels}
+#         with open(cache_name, 'wb') as handle:
+#             pickle.dump(cache, handle, protocol=pickle.HIGHEST_PROTOCOL)
+#
+#     return all_insts, seen_labels
 
 def create_training_instances(
     train_annot_folder,
@@ -439,15 +501,17 @@ def create_training_instances(
     labels,
 ):
     # parse annotations of the training set
-    train_ints, train_labels = parse_coco_annotation(train_annot_folder, train_image_folder, train_cache, labels)
+    train_ints, train_labels = parse_voc_annotation(train_annot_folder, train_image_folder, train_cache, labels)
     # parse annotations of the validation set, if any, otherwise split the training set
     if os.path.exists(valid_annot_folder):
-        valid_ints, valid_labels = parse_coco_annotation(valid_annot_folder, valid_image_folder, valid_cache, labels)
+        valid_ints, valid_labels = parse_voc_annotation(valid_annot_folder, valid_image_folder, valid_cache, labels)
     else:
         print("valid_annot_folder not exists. Spliting the trainining set.")
 
         train_valid_split = int(0.8*len(train_ints))
+        np.random.seed(0)
         np.random.shuffle(train_ints)
+        np.random.seed()
 
         valid_ints = train_ints[train_valid_split:]
         train_ints = train_ints[:train_valid_split]
@@ -456,9 +520,8 @@ def create_training_instances(
     if len(labels) > 0:
         overlap_labels = set(labels).intersection(set(train_labels.keys()))
 
-        print('Seen labels: \t\t'  + str(train_labels))
-        print('Given labels: \t\t' + str(labels))
-        print('Overlap labels: \t' + str(list(overlap_labels)))
+        print('Seen labels: \t'  + str(train_labels) + '\n')
+        print('Given labels: \t' + str(labels))
 
         # return None, None, None if some given label is not in the dataset
         if len(overlap_labels) < len(labels):
@@ -469,6 +532,8 @@ def create_training_instances(
         print(train_labels)
         labels = train_labels.keys()
 
-    return train_ints, valid_ints, sorted(labels)
+    max_box_per_image = max([len(inst['object']) for inst in (train_ints + valid_ints)])
+
+    return train_ints, valid_ints, sorted(labels), max_box_per_image
 def normalize(image):
     return image/255.
