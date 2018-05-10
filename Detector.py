@@ -526,12 +526,12 @@ class ExperimentDetector():
         self.obj_thresh, self.nms_thresh = 0.5, 0.45
         self.anchors = [[116, 90, 156, 198, 373, 326], [30, 61, 62, 45, 59, 119], [10, 13, 16, 30, 33, 23]]
         self.labels = ["person", "car", "bus"]
-        self.batch_size = 4
-        self.min_net_size = 416
-        self.max_net_size = 416
+        self.batch_size = 3
+        self.min_net_size = 416-128
+        self.max_net_size = 416+128
         self.ignore_thresh = 0.5
         self.warmup_batches = 0
-        self.learning_rate=0.0001
+        self.learning_rate=0.00001
 
         #self.anchors = tf.constant(anchors, dtype='float', shape=[3,1,1,1,3,2])
 
@@ -556,9 +556,9 @@ class ExperimentDetector():
 
 
         train_ints, valid_ints, labels, max_box_per_image = utils.create_training_instances(
-            '/media/heecheol/809239C09239BB8A/DataSet/VOC2012/Annotations/',
-            '/media/heecheol/809239C09239BB8A/DataSet/VOC2012/JPEGImages/',
-            'voc_train.pkl',
+            '/home/heecheol/Dataset/COCO/Annotations/',
+            '/home/heecheol/Dataset/COCO/JPEGImages/',
+            'COCO.pkl',
             '',
             '',
             '',
@@ -566,7 +566,7 @@ class ExperimentDetector():
         )
         self.trainBatchGenerator = BatchGenerator.BatchGenerator(
             train_ints, self.anchors, self.labels,
-            shuffle = True,
+            shuffle = False,
             max_box_per_image=max_box_per_image,
             jitter = 0.3,
             norm = utils.normalize,
@@ -574,24 +574,27 @@ class ExperimentDetector():
         )
         self.validBatchGenerator = BatchGenerator.BatchGenerator(
             valid_ints, self.anchors, self.labels,
-            shuffle = True,
+            shuffle = False,
             max_box_per_image=max_box_per_image,
             jitter = 0.0,
             norm = utils.normalize,
             batch_size=self.batch_size)
-
-        if not os.path.exists('./Weights/Yolov3.ckpt.meta'):
-            WeightsReader = utils.WeightReader('yolov3.weights')
-            WeightsReader.load_weights(tf.GraphKeys.GLOBAL_VARIABLES,self.sess)
-            tf.train.Saver(var_list=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='yolo3/conv_block')).save(
-                self.sess,'./Weights/Yolov3.ckpt')
-        else:
-            tf.train.Saver(var_list=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='yolo3/conv_block')).restore(
-                self.sess, "./Weights/Yolov3.ckpt")
+        if isRestore==False:
+            if not os.path.exists('./Weights/Yolov3.ckpt.meta'):
+                WeightsReader = utils.WeightReader('yolov3.weights')
+                WeightsReader.load_weights(tf.GraphKeys.GLOBAL_VARIABLES,self.sess)
+                tf.train.Saver(var_list=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='yolo3/conv_block')).save(
+                    self.sess,'./Weights/Yolov3.ckpt')
+            else:
+                tf.train.Saver(var_list=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='yolo3/conv_block')).restore(
+                    self.sess, "./Weights/Yolov3.ckpt")
 
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
             self.train_op = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
+
+        if isRestore:
+            tf.train.Saver().restore(self.sess,"./Weights/test_5.ckpt")
 
         # List all global variables
         global_vars = tf.global_variables()
@@ -990,9 +993,8 @@ class ExperimentDetector():
         new_image = utils.preprocess_input(image, self.net_h, self.net_w)
         new_image = np.expand_dims(new_image, 0)
 
-        #test=self.sess.run(self.feature_map_tensors[0],feed_dict=)
         # run the prediction
-        yolos = self.sess.run(self.logits,feed_dict={self.input_img:new_image})
+        yolos = self.sess.run(self.logits,feed_dict={self.input_img:new_image,self.isTrain:False})
 
         boxes = []
 
@@ -1010,14 +1012,14 @@ class ExperimentDetector():
         utils.draw_boxes(image, boxes, self.labels, self.obj_thresh)
 
         return image
-    def _get_feed_dict(self,train_batch):
+    def _get_feed_dict(self,train_batch,isTrain = True):
         feed_dict = {self.input_img: train_batch[0], self.ground_truth_boxes: train_batch[1],
                      self.ground_truth[0]: train_batch[2], self.ground_truth[1]: train_batch[3],
-                     self.ground_truth[2]: train_batch[4],self.isTrain: True}
+                     self.ground_truth[2]: train_batch[4],self.isTrain: isTrain}
         return feed_dict
     def Training(self):
-        print(self.trainBatchGenerator.__len__())
-        for epoch in range(10):
+        for epoch in range(100):
+
             count=0
             loss_sum=0
             for iter in range(1,self.trainBatchGenerator.__len__()):
@@ -1026,9 +1028,22 @@ class ExperimentDetector():
                 loss,_ = self.sess.run([self.loss,self.train_op],feed_dict=self._get_feed_dict(train_batch))
 
                 loss_sum+=loss
+                print('iter = ', iter, ' loss = ', loss_sum / count)
                 count+=1
+                # if (iter%100==0):
+                #     print('iter = ',iter,' loss = ',loss_sum/count)
 
-                if (iter%100==0):
-                    print('iter = ',iter,' loss = ',loss_sum/count)
-            print('epoch = ',epoch,' loss = ',loss_sum/count)
+            print('epoch = ',epoch,'train loss = ',loss_sum/count)
             tf.train.Saver().save(self.sess, "./Weights/test_"+str(epoch)+".ckpt")
+
+            loss_sum = 0
+            count = 0
+            for iter in range(1, self.validBatchGenerator.__len__()):
+                train_batch = self.validBatchGenerator.__getitem__(iter)
+
+                loss = self.sess.run(self.loss, feed_dict=self._get_feed_dict(train_batch, isTrain=False))
+
+                loss_sum += loss
+                count += 1
+
+            print('epoch = ', epoch, 'valid loss = ', loss_sum / count)

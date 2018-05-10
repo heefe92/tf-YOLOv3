@@ -13,8 +13,8 @@ class BatchGenerator():
                  downsample=32,  # ratio between network input's size and network output's size, 32 for YOLOv3
                  max_box_per_image=30,
                  batch_size=1,
-                 min_net_size=416,
-                 max_net_size=416,
+                 min_net_size=416-128,
+                 max_net_size=416+128,
                  shuffle=True,
                  jitter=False,
                  norm=None
